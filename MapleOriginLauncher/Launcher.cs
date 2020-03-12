@@ -8,77 +8,116 @@ using System.Linq;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 
 namespace MapleOriginLauncher
 {
     class Launcher
     {
-        public ProgressBar progressBar;
-        public Button playButton;
-        public Button updateButton;
+        private ProgressBar progressBar;
+        private Button button;
+        private Label label;
 
         private string BASE_URL = "http://www.mapleorigin.net/downloads/";
         private string checksumUrl;
         private string patchPath;
 
-        public Launcher(ProgressBar progressBar, Button playButton, Button updateButton)
+        private double currentProgress;
+        private List<string> oldFiles;
+
+        public Launcher(ProgressBar progressBar, Button button, Label label)
         {
             this.progressBar = progressBar;
-            this.playButton = playButton;
-            this.updateButton = updateButton;
+            this.currentProgress = 0.0;
+            this.button = button;
+            this.label = label;
             this.checksumUrl = BASE_URL + "checksum.txt";
             this.patchPath = BASE_URL + "latest/";
+            this.oldFiles = new List<string>();
+        }
+
+        public async void CheckForUpdates()
+        {
+            await Task.Run(() => download(checksumUrl, "temp\\", "checksum.txt", true)); // download checksum
         }
 
         public void PlayGame()
         {
-            this.updateButton.IsEnabled = false;
-            this.playButton.IsEnabled = false;
-            Process.Start("MapleOrigin.exe");
+            Process p = new Process();
+            p.StartInfo.FileName = "MapleOrigin.exe";
+            p.StartInfo.Arguments = "pnano.ddns.net 8484";
+            p.EnableRaisingEvents = true;
+            p.Exited += new EventHandler(process_Exited);
+            p.Start();
         }
 
         public void UpdateGame()
         {
-            this.updateButton.IsEnabled = false;
-            this.playButton.IsEnabled = false;
-
-            System.IO.Directory.CreateDirectory("temp");
-            download(checksumUrl, "temp/checksum.txt", "checksum.txt"); // download checksum async. Response handled in webClient_DownloadFileCompleted
-        }
-
-        private void download(string url, string path, string filename)
-        {
-            using (var webClient = new WebClient())
+            try
             {
-                webClient.QueryString.Add("url", url);
-                webClient.QueryString.Add("path", path);
-                webClient.QueryString.Add("filename", filename);
-                webClient.DownloadFileCompleted += new AsyncCompletedEventHandler(webClient_DownloadFileCompleted);
-                webClient.DownloadProgressChanged += new DownloadProgressChangedEventHandler(webClient_DownloadProgressChanged);
-                webClient.DownloadFileAsync(new Uri(url), path);
+                foreach (string file in oldFiles)
+                {
+                    string zipname = file.Split('.')[0] + ".zip";
+                    download(patchPath + zipname, "temp\\", zipname);
+                }
+                updateButton(button, "Play Game", true);
+            }
+            catch (Exception e) // some file wasn't updated so we don't set it to play
+            {
+                show(e.Message + " Please close MapleOrigin and try again!");
+                updateButton(button, "Update Game", true);
             }
         }
 
-        private void processChecksums()
+        private Task download(string url, string path, string filename, bool async = true)
+        {
+            using (var webClient = new WebClient())
+            {
+                System.IO.Directory.CreateDirectory(path); // create folder if not exists
+                webClient.QueryString.Add("url", url);
+                webClient.QueryString.Add("path", path);
+                webClient.QueryString.Add("filename", filename);
+                webClient.QueryString.Add("startMillis", "" + DateTime.Now.Millisecond);
+
+                webClient.DownloadProgressChanged += new DownloadProgressChangedEventHandler(webClient_DownloadProgressChanged);
+
+                Console.WriteLine("url: " + url + ", path: " + path + ", filename: " + filename);
+                webClient.DownloadFileCompleted += new AsyncCompletedEventHandler(webClient_DownloadFileCompleted);
+                return webClient.DownloadFileTaskAsync(new Uri(url), path + filename);
+            }
+        }
+
+        private void processChecksums(string checksumFile)
         {
             string line;
-            StreamReader file = new StreamReader("temp\\checksum.txt");
+            StreamReader file = new StreamReader(checksumFile);
             while ((line = file.ReadLine()) != null)
             {
+                updateProgress(progressBar, currentProgress + (80 / 20));
                 string[] split = line.Split(',');
                 string filename = split[0];
                 string remoteChecksum = split[1];
                 string localChecksum = calculateChecksum(filename);
                 if (!remoteChecksum.Equals(localChecksum))
                 {
-                    string zipname = filename.Split('.')[0] + ".zip";
-                    Console.WriteLine("Downloading " + zipname + " to temp/");
-                    download(patchPath + zipname, "temp\\" + zipname, filename);
+                    Console.WriteLine("Adding to queue: " + filename);
+                    oldFiles.Add(filename);
                 }
             }
-
+            if (oldFiles.Count == 0) // player is up to date
+            {
+                updateButton(button, "Play Game", true);
+                oldFiles = null;
+            }
+            else // not up to date
+            {
+                updateButton(button, "Update Game", true);
+            }
+            updateProgress(progressBar, 100);
             file.Close();
         }
 
@@ -96,13 +135,15 @@ namespace MapleOriginLauncher
 
         private void processZip(string zipPath, string filename)
         {
-            Console.WriteLine("Extracting " + zipPath + " to " + filename);
-
-            using (ZipArchive archive = ZipFile.OpenRead(zipPath))
+            using (ZipArchive archive = ZipFile.OpenRead(zipPath + filename))
             {
-                archive.GetEntry(filename).ExtractToFile(filename, true);
+                foreach (ZipArchiveEntry entry in archive.Entries) // only 1 file in the zip though
+                {
+                    Console.WriteLine("Extracting " + zipPath + filename + " to " + entry.FullName);
+                    entry.ExtractToFile(entry.FullName, true);
+                }
             }
-            File.Delete(zipPath);
+            File.Delete(zipPath + filename);
         }
 
         private void webClient_DownloadFileCompleted(object sender, AsyncCompletedEventArgs e)
@@ -110,29 +151,66 @@ namespace MapleOriginLauncher
             WebClient client = ((WebClient)sender);
             if (e.Error == null)
             {
-                progressBar.Value = 0;
-
+                updateProgress(progressBar, 0);
+                int timeTaken = DateTime.Now.Millisecond - Int32.Parse(client.QueryString["startMillis"]);
                 if (client.QueryString["url"].Equals(checksumUrl))
                 {
-                    processChecksums();
+                    processChecksums("temp\\checksum.txt"); // add files needed to be updated to list
                 }
-                else // it's an updated file in zip
+                else
                 {
                     processZip(client.QueryString["path"], client.QueryString["filename"]);
-                   
                 }
             }
             else
             {
                 Console.WriteLine("error downloading: " + client.QueryString["url"]);
-                MessageBox.Show(e.Error.Message);
+                show(e.Error.Message);
             }
             client.Dispose();
         }
 
         private void webClient_DownloadProgressChanged(object sender, DownloadProgressChangedEventArgs e)
         {
-            progressBar.Value = e.ProgressPercentage;
+            updateProgress(progressBar, e.ProgressPercentage);
+        }
+
+        private void process_Exited(object sender, EventArgs e)
+        {
+            updateButton(button, null, true);
+        }
+
+        private void show(string message)
+        {
+            MessageBoxEx.Show(Application.Current.MainWindow, message);
+        }
+
+        private void updateButton(Button button, String text, bool? isEnabled = null)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                if (text != null)
+                    button.Content = text;
+                if (isEnabled != null)
+                    button.IsEnabled = (bool)isEnabled;
+            });
+        }
+
+        private void updateProgress(ProgressBar bar, double val)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                bar.Value = val;
+                currentProgress = val;
+            });
+        }
+
+        private void updateLabel(Label label, String text)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                label.Content = text;
+            });
         }
 
     }

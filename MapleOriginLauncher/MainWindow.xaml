@@ -14,25 +14,19 @@
     </Window.Background>
 
     <Grid Margin="10,10,10,10">
-        <Image Source="/assets/banner.png" Height="110" VerticalAlignment="Top" Margin="0,0,0,0" Stretch="UniformToFill"/>
-        <Image Source="/assets/banner-01.png" Margin="0,25.074,0,-25.074"/>
+        <!--<Image Source="/assets/banner.png" Height="110" VerticalAlignment="Top" Margin="0,0,0,0" Stretch="UniformToFill"/>-->
+        <Image Source="/assets/banner-01.png" Margin="0,-77,0,77"/>
 
 
-        <Button x:Name="play" Content="Play Game" HorizontalAlignment="Left" VerticalAlignment="Top" Width="156.101" Margin="756.232,432.203,0,0" RenderTransformOrigin="-0.086,-0.979" Height="37.13" Cursor="Hand" Click="PlayGame_Click" Background="#FF79CBC5" FontFamily="Lucida Bright" FontSize="16">
+        <Button x:Name="button" Content="Play Game" HorizontalAlignment="Right" VerticalAlignment="Bottom" Width="156" Margin="756,422,0,0" RenderTransformOrigin="-0.086,-0.979" Height="37" Cursor="Hand" Click="Button_Click" Background="#FF79CBC5" FontFamily="Lucida Bright" FontSize="14">
             <Button.Resources>
                 <Style TargetType="Border">
                     <Setter Property="CornerRadius" Value="5"/>
                 </Style>
             </Button.Resources>
         </Button>
-        <Button x:Name="update" Content="Check for Updates" HorizontalAlignment="Left" VerticalAlignment="Top" Width="156.101" Margin="756.232,134.973,0,0" Height="37.13" Click="Update_Click" Cursor="Hand" Background="#FF79CBC5" FontSize="16" FontFamily="Lucida Bright">
-            <Button.Resources>
-                <Style TargetType="Border">
-                    <Setter Property="CornerRadius" Value="5"/>
-                </Style>
-            </Button.Resources>
-        </Button>
-        <ProgressBar x:Name="progressBar" HorizontalAlignment="Left" Height="27.463" VerticalAlignment="Top" Width="700" Margin="10,437,0,0" ValueChanged="ProgressBar_ValueChanged"/>
+        <ProgressBar x:Name="progressBar" HorizontalAlignment="Left" Height="27" VerticalAlignment="Bottom" Width="700" Margin="10,0,0,4" ValueChanged="ProgressBar_ValueChanged"/>
+        <Label x:Name="label" Content="Checking for updates..." HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10,0,0,24" Width="700" Height="30" FontFamily="Lucida Bright" FontSize="14"/>
 
     </Grid>
 </Window>
