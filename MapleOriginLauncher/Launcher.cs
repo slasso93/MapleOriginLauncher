@@ -124,6 +124,7 @@ namespace MapleOriginLauncher
             }
             else
             {
+                Console.WriteLine("error downloading: " + client.QueryString["url"]);
                 MessageBox.Show(e.Error.Message);
             }
             client.Dispose();

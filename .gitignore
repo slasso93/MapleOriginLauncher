@@ -1,4 +1,4 @@
 .vs/
 **/[Pp]ackages/*
-**/bin/Debug/*
-**/obj/Debug/*
+**/bin/*
+**/obj/*
