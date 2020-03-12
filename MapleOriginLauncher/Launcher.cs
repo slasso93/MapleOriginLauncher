@@ -11,7 +11,7 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 
-namespace MapleOrigin_Launcher
+namespace MapleOriginLauncher
 {
     class Launcher
     {
