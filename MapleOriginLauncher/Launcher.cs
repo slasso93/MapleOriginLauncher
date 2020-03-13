@@ -18,6 +18,7 @@ namespace MapleOriginLauncher
 {
     class Launcher
     {
+        private int totalFiles = 18; // for checksum progress
         private ProgressBar progressBar;
         private Button button;
         private Label label;
@@ -26,18 +27,20 @@ namespace MapleOriginLauncher
         private string checksumUrl;
         private string patchPath;
 
+        private bool success;
         private double currentProgress;
-        private List<string> oldFiles;
+        private Dictionary<string, int> filesToPatch; // filename, percentage downloaded
 
         public Launcher(ProgressBar progressBar, Button button, Label label)
         {
             this.progressBar = progressBar;
+            this.success = true;
             this.currentProgress = 0.0;
             this.button = button;
             this.label = label;
             this.checksumUrl = BASE_URL + "checksum.txt";
             this.patchPath = BASE_URL + "latest/";
-            this.oldFiles = new List<string>();
+            this.filesToPatch = new Dictionary<string, int>();
         }
 
         public async void CheckForUpdates()
@@ -55,21 +58,46 @@ namespace MapleOriginLauncher
             p.Start();
         }
 
-        public void UpdateGame()
+        public async void UpdateGame()
         {
+            success = true;
+            updateProgress(progressBar, 0);
             try
             {
-                foreach (string file in oldFiles)
+                List<Task> downloads = new List<Task>();
+
+                foreach (string zipfile in filesToPatch.Keys)
                 {
-                    string zipname = file.Split('.')[0] + ".zip";
-                    download(patchPath + zipname, "temp\\", zipname);
+                    if (!File.Exists("temp\\" + zipfile))
+                        downloads.Add(download(patchPath + zipfile, "temp\\", zipfile));
                 }
-                updateButton(button, "Play Game", true);
+
+                await Task.WhenAll(downloads);
+                int i = 1;
+                currentProgress = 0;
+                foreach (string zipfile in filesToPatch.Keys)
+                {
+                    if (success)
+                    {
+                        await Task.Run(() => processZip("temp\\", zipfile, i));
+                        updateProgress(progressBar, currentProgress + 100 * ((double)(i++)) / filesToPatch.Count);
+                    }
+                }
+
+                if (success)
+                {
+                    updateButton(button, "Play Game", true);
+                } else
+                {
+                    updateProgress(progressBar, 100);
+                }
             }
             catch (Exception e) // some file wasn't updated so we don't set it to play
             {
                 show(e.Message + " Please close MapleOrigin and try again!");
                 updateButton(button, "Update Game", true);
+                updateProgress(progressBar, 100);
+                success = false;
             }
         }
 
@@ -95,9 +123,10 @@ namespace MapleOriginLauncher
         {
             string line;
             StreamReader file = new StreamReader(checksumFile);
+            currentProgress = 0;
             while ((line = file.ReadLine()) != null)
             {
-                updateProgress(progressBar, currentProgress + (80 / 20));
+                currentProgress += (100.0 / totalFiles);
                 string[] split = line.Split(',');
                 string filename = split[0];
                 string remoteChecksum = split[1];
@@ -105,45 +134,69 @@ namespace MapleOriginLauncher
                 if (!remoteChecksum.Equals(localChecksum))
                 {
                     Console.WriteLine("Adding to queue: " + filename);
-                    oldFiles.Add(filename);
+                    filesToPatch.Add(filename.Split('.')[0] + ".zip", 0);
                 }
+                updateProgress(progressBar, currentProgress);
             }
-            if (oldFiles.Count == 0) // player is up to date
+            if (filesToPatch.Count == 0) // player is up to date
             {
                 updateButton(button, "Play Game", true);
-                oldFiles = null;
+                filesToPatch = null;
             }
             else // not up to date
             {
                 updateButton(button, "Update Game", true);
             }
-            updateProgress(progressBar, 100);
+
             file.Close();
         }
 
         private string calculateChecksum(string filename)
         {
-            using (var md5 = MD5.Create())
+            try
             {
-                using (var stream = File.OpenRead(filename))
+                using (var md5 = MD5.Create())
                 {
-                    return BitConverter.ToString(md5.ComputeHash(stream)).Replace("-", "").ToLower();
+                    using (var stream = File.OpenRead(filename))
+                    {
+                        return BitConverter.ToString(md5.ComputeHash(stream)).Replace("-", "").ToLower();
+                    }
                 }
+            } 
+            catch (Exception e)
+            {
+                return "";
             }
 
         }
 
-        private void processZip(string zipPath, string filename)
+        private void processZip(string zipPath, string filename, int count)
         {
-            using (ZipArchive archive = ZipFile.OpenRead(zipPath + filename))
+            var tcs = new TaskCompletionSource<int>();
+            if (success) // only keep extract zips if all of previous worked
             {
-                foreach (ZipArchiveEntry entry in archive.Entries) // only 1 file in the zip though
+                try
                 {
-                    Console.WriteLine("Extracting " + zipPath + filename + " to " + entry.FullName);
-                    entry.ExtractToFile(entry.FullName, true);
+                    using (ZipArchive archive = ZipFile.OpenRead(zipPath + filename))
+                    {
+                        foreach (ZipArchiveEntry entry in archive.Entries) // only 1 file in the zip though
+                        {
+                            updateLabel(label, "Extracting: " + entry.FullName + " (" + count + "/" + filesToPatch.Count + ")");
+                            Console.WriteLine("Extracting " + zipPath + filename + " to " + entry.FullName);
+                            entry.ExtractToFile(entry.FullName, true);
+                        }
+                    }
+                    File.Delete(zipPath + filename);
+                }
+                catch (Exception e)
+                {
+                    show(e.Message);
+                    updateButton(button, "Update Game", true);
+                    updateLabel(label, "Updates pending!");
+                    updateProgress(progressBar, 100);
+                    success = false;
                 }
             }
-            File.Delete(zipPath + filename);
         }
 
         private void webClient_DownloadFileCompleted(object sender, AsyncCompletedEventArgs e)
@@ -157,22 +210,32 @@ namespace MapleOriginLauncher
                 {
                     processChecksums("temp\\checksum.txt"); // add files needed to be updated to list
                 }
-                else
-                {
-                    processZip(client.QueryString["path"], client.QueryString["filename"]);
-                }
             }
             else
             {
                 Console.WriteLine("error downloading: " + client.QueryString["url"]);
                 show(e.Error.Message);
+                File.Delete(client.QueryString["path"] + client.QueryString["filename"]);
+                success = false;
             }
             client.Dispose();
         }
 
         private void webClient_DownloadProgressChanged(object sender, DownloadProgressChangedEventArgs e)
         {
-            updateProgress(progressBar, e.ProgressPercentage);
+            WebClient client = ((WebClient)sender);
+            int newPercent = e.ProgressPercentage;
+            if (filesToPatch.Count != 0)
+            {
+                string filename = client.QueryString["filename"];
+                updateLabel(label, "Downloading " + filename);
+
+                filesToPatch[filename] = newPercent;
+                newPercent = filesToPatch.Sum(k => k.Value)/filesToPatch.Count;
+                Console.WriteLine("download%: " + newPercent);
+            }
+
+            updateProgress(progressBar, newPercent);
         }
 
         private void process_Exited(object sender, EventArgs e)
@@ -182,7 +245,10 @@ namespace MapleOriginLauncher
 
         private void show(string message)
         {
-            MessageBoxEx.Show(Application.Current.MainWindow, message);
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                MessageBoxEx.Show(Application.Current.MainWindow, message);
+            });
         }
 
         private void updateButton(Button button, String text, bool? isEnabled = null)
@@ -201,7 +267,6 @@ namespace MapleOriginLauncher
             Application.Current.Dispatcher.Invoke(() =>
             {
                 bar.Value = val;
-                currentProgress = val;
             });
         }
 

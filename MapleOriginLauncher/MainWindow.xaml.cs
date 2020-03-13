@@ -23,6 +23,8 @@ namespace MapleOriginLauncher
     {
 
         private Launcher launcher;
+        private bool isUpdating;
+        private bool isChecking;
 
         public MainWindow()
         {
@@ -30,16 +32,18 @@ namespace MapleOriginLauncher
             launcher = new Launcher(progressBar, button, label);
             launcher.CheckForUpdates();
             button.IsEnabled = false;
+            isChecking = true;
+            isUpdating = false;
             Task.Factory.StartNew(() =>
             {
-                InvokeMethodExample();
+                labelUpdate();
             });
         }
 
-        private void InvokeMethodExample()
+        private void labelUpdate()
         {
             int i = 0;
-            while (updating())
+            while (checking())
             {
                 Thread.Sleep(100);
 
@@ -58,18 +62,17 @@ namespace MapleOriginLauncher
                 }
                 else if (button.Content.Equals("Update Game"))
                 {
-                    label.Content = "Updated pending!";
+                    label.Content = "Updates pending!";
                 }
             });
         }
 
-        private bool updating()
+        private bool checking()
         {
-            bool isUpdating = false;
             Dispatcher.Invoke(() => {
-                isUpdating = !button.IsEnabled; 
+                isChecking = !button.IsEnabled; 
             });
-            return isUpdating;
+            return isChecking;
         }
 
         private void Button_Click(object sender, RoutedEventArgs e)
@@ -82,7 +85,32 @@ namespace MapleOriginLauncher
             else if(button.Content.Equals("Update Game"))
             {
                 launcher.UpdateGame();
+                Task.Factory.StartNew(() =>
+                {
+                    waitForComplete();
+                });
             }
+        }
+
+        private void waitForComplete()
+        {
+            while (updating())
+            {
+                Thread.Sleep(2000);
+            }
+            Dispatcher.Invoke(() =>
+            {
+
+                label.Content = "Ready to play.";
+            });
+        }
+
+        private bool updating()
+        {
+            Dispatcher.Invoke(() => {
+                isUpdating = button.Content.Equals("Update Game");
+            });
+            return isUpdating;
         }
 
         private void ProgressBar_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)

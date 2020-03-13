@@ -25,7 +25,7 @@
                 </Style>
             </Button.Resources>
         </Button>
-        <ProgressBar x:Name="progressBar" HorizontalAlignment="Left" Height="27" VerticalAlignment="Bottom" Width="700" Margin="10,0,0,4" ValueChanged="ProgressBar_ValueChanged"/>
+        <ProgressBar x:Name="progressBar" Value ="0.0" HorizontalAlignment="Left" Height="27" VerticalAlignment="Bottom" Width="700" Margin="10,0,0,4" ValueChanged="ProgressBar_ValueChanged"/>
         <Label x:Name="label" Content="Checking for updates..." HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10,0,0,24" Width="700" Height="30" FontFamily="Lucida Bright" FontSize="14"/>
 
     </Grid>
