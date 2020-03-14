@@ -46,6 +46,7 @@ namespace MapleOriginPackager
                     {
                         File.Delete(destFolder + filename);
                     }
+                    Console.WriteLine("Copying " + filename);
                     File.Copy(file, destFolder + filename);
                 }
                 else
@@ -72,23 +73,19 @@ namespace MapleOriginPackager
                 {
                     Console.WriteLine("Calculating checksums");
                     List<string> newLines = new List<string>();
-                    foreach (var file in Directory.GetFiles(folder).OrderByDescending(name => name).Reverse().Where(s => !s.Contains("MapleOriginLauncherUpdater")))
+
+
+                    string launcherName = "MapleOriginLauncher.exe";
+                    string launcherChecksum = checksumDiff(newLines, checksumFile, folder + launcherName);
+                    if (launcherChecksum != null)
                     {
-                        string newChecksum = calculateChecksum(file);
-                        if (checksumFile != null)
-                        {
-                            line = checksumFile.ReadLine();
-                            if (line != null && line.Split(',')[1].Equals(newChecksum)) // this mean file is up to date
-                            { 
-                                continue;
-                            }
-                        }
-                        if (Path.GetFileName(file).Equals("MapleOriginLauncher.exe"))
-                        {
-                            updatedFiles.Insert(0, file);
-                            newLines.Insert(0, Path.GetFileName(file) + "," + newChecksum);
-                        }
-                        else
+                        updatedFiles.Add(folder + launcherName);
+                    }
+                    
+                    foreach (var file in Directory.GetFiles(folder).OrderByDescending(name => name).Reverse().Where(s => !s.Contains("MapleOriginLauncher")))
+                    {
+                        string newChecksum = checksumDiff(newLines, checksumFile, file);
+                        if (newChecksum != null)
                         {
                             updatedFiles.Add(file);
                             newLines.Add(Path.GetFileName(file) + "," + newChecksum);
@@ -100,12 +97,27 @@ namespace MapleOriginPackager
                     File.Replace(".\\checksum.txt", checksumTxt, null);
                 else
                     File.Move(".\\checksum.txt", checksumTxt);
-            } 
+            }
             catch (Exception e)
             {
                 Console.WriteLine(e.Message);
             }
             return updatedFiles; // we will only zip these updated files
+        }
+
+        private static string checksumDiff(List<string> newLines, StreamReader checksumFile, string path)
+        {
+            bool add = true;
+            string sourceChecksum = calculateChecksum(path);
+            newLines.Add(Path.GetFileName(path) + "," + sourceChecksum);
+
+            if (checksumFile != null && checksumFile.Peek() != -1)
+            {
+                string line = checksumFile.ReadLine();
+                string oldChecksum = line.Split(',')[1];
+                add = !oldChecksum.Equals(sourceChecksum);
+            }
+            return add ? sourceChecksum : null;
         }
 
         private static string calculateChecksum(string filename)
