@@ -42,6 +42,10 @@ namespace MapleOriginPackager
                 string filename = Path.GetFileName(file);
                 if (filename.Contains("MapleOriginLauncher"))
                 {
+                    if (File.Exists(destFolder + filename))
+                    {
+                        File.Delete(destFolder + filename);
+                    }
                     File.Copy(file, destFolder + filename);
                 }
                 else
