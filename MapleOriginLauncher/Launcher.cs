@@ -7,12 +7,9 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Security.Cryptography;
-using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Threading;
 
 namespace MapleOriginLauncher
 {
@@ -27,12 +24,14 @@ namespace MapleOriginLauncher
         private string checksumUrl;
         private string patchPath;
 
+        private bool launcherNeedsUpdate;
         private bool success;
         private double currentProgress;
         private Dictionary<string, int> filesToPatch; // filename, percentage downloaded
 
         public Launcher(ProgressBar progressBar, Button button, Label label)
         {
+            this.launcherNeedsUpdate = false;
             this.progressBar = progressBar;
             this.success = true;
             this.currentProgress = 0.0;
@@ -43,19 +42,66 @@ namespace MapleOriginLauncher
             this.filesToPatch = new Dictionary<string, int>();
         }
 
+        public bool LauncherNeedsUpdate()
+        {
+            return this.launcherNeedsUpdate;
+        }
+
         public async void CheckForUpdates()
         {
             await Task.Run(() => download(checksumUrl, "temp\\", "checksum.txt", true)); // download checksum
         }
 
+        public async void RunLauncherUpdater()
+        {
+            await Task.Run(() =>
+            {
+                try
+                {
+                    download(patchPath + "MapleOriginLauncherUpdater.exe", "temp\\", "MapleOriginLauncherUpdater.exe", false);
+                    Process[] pname = Process.GetProcessesByName("MapleOriginLauncherUpdater"); // If another updater is already in progress, dont do anything
+                    if (pname.Length == 0)
+                    {
+                        Process p = new Process();
+                        p.StartInfo.FileName = "temp\\MapleOriginLauncherUpdater.exe";
+                        p.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
+                        p.StartInfo.CreateNoWindow = true;
+                        p.StartInfo.Arguments = System.AppDomain.CurrentDomain.FriendlyName;
+                        p.Start();
+                        updateLabel(label, "Running.");
+                    }
+
+                }
+                catch (Exception e)
+                {
+                    show(e.Message);
+                }
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    Application.Current.Shutdown();
+                });
+            });
+        }
+
         public void PlayGame()
         {
-            Process p = new Process();
-            p.StartInfo.FileName = "MapleOrigin.exe";
-            p.StartInfo.Arguments = "pnano.ddns.net 8484";
-            p.EnableRaisingEvents = true;
-            p.Exited += new EventHandler(process_Exited);
-            p.Start();
+            try
+            {
+                updateLabel(label, "MapleOrigin is starting.");
+                Process p = new Process();
+                p.StartInfo.FileName = "MapleOrigin.exe";
+                p.StartInfo.Arguments = "pnano.ddns.net 8484";
+                p.EnableRaisingEvents = true;
+                p.Exited += new EventHandler(process_Exited);
+                p.Start();
+                updateLabel(label, "Running.");
+            }
+            catch (Exception e)
+            {
+                show(e.Message);
+                updateLabel(label, "Ready to play.");
+                updateButton(button, "Play Game", true);
+            }
         }
 
         public async void UpdateGame()
@@ -87,7 +133,8 @@ namespace MapleOriginLauncher
                 if (success)
                 {
                     updateButton(button, "Play Game", true);
-                } else
+                }
+                else
                 {
                     updateProgress(progressBar, 100);
                 }
@@ -111,11 +158,18 @@ namespace MapleOriginLauncher
                 webClient.QueryString.Add("filename", filename);
                 webClient.QueryString.Add("startMillis", "" + DateTime.Now.Millisecond);
 
-                webClient.DownloadProgressChanged += new DownloadProgressChangedEventHandler(webClient_DownloadProgressChanged);
-
                 Console.WriteLine("url: " + url + ", path: " + path + ", filename: " + filename);
-                webClient.DownloadFileCompleted += new AsyncCompletedEventHandler(webClient_DownloadFileCompleted);
-                return webClient.DownloadFileTaskAsync(new Uri(url), path + filename);
+                if (async)
+                {
+                    webClient.DownloadProgressChanged += new DownloadProgressChangedEventHandler(webClient_DownloadProgressChanged);
+
+                    webClient.DownloadFileCompleted += new AsyncCompletedEventHandler(webClient_DownloadFileCompleted);
+                    return webClient.DownloadFileTaskAsync(new Uri(url), path + filename);
+                } else
+                {
+                    webClient.DownloadFile(url, path + filename);
+                    return null;
+                }
             }
         }
 
@@ -124,18 +178,30 @@ namespace MapleOriginLauncher
             string line;
             StreamReader file = new StreamReader(checksumFile);
             currentProgress = 0;
+
+
+
             while ((line = file.ReadLine()) != null)
             {
-                currentProgress += (100.0 / totalFiles);
+                // first line will be MapleOriginLauncher.exe
+
+
                 string[] split = line.Split(',');
                 string filename = split[0];
                 string remoteChecksum = split[1];
                 string localChecksum = calculateChecksum(filename);
                 if (!remoteChecksum.Equals(localChecksum))
                 {
+                    if (currentProgress == 0)
+                    {
+                        Console.WriteLine("Launcher is outdated!");
+                        launcherNeedsUpdate = true;
+                        break;
+                    }
                     Console.WriteLine("Adding to queue: " + filename);
                     filesToPatch.Add(filename.Split('.')[0] + ".zip", 0);
                 }
+                currentProgress += (100.0 / totalFiles);
                 updateProgress(progressBar, currentProgress);
             }
             if (filesToPatch.Count == 0) // player is up to date
@@ -162,9 +228,10 @@ namespace MapleOriginLauncher
                         return BitConverter.ToString(md5.ComputeHash(stream)).Replace("-", "").ToLower();
                     }
                 }
-            } 
+            }
             catch (Exception e)
             {
+                Console.WriteLine(e.Message);
                 return "";
             }
 
@@ -193,7 +260,6 @@ namespace MapleOriginLauncher
                     show(e.Message);
                     updateButton(button, "Update Game", true);
                     updateLabel(label, "Updates pending!");
-                    updateProgress(progressBar, 100);
                     success = false;
                 }
             }
@@ -231,7 +297,7 @@ namespace MapleOriginLauncher
                 updateLabel(label, "Downloading " + filename);
 
                 filesToPatch[filename] = newPercent;
-                newPercent = filesToPatch.Sum(k => k.Value)/filesToPatch.Count;
+                newPercent = filesToPatch.Sum(k => k.Value) / filesToPatch.Count;
                 Console.WriteLine("download%: " + newPercent);
             }
 
@@ -240,6 +306,7 @@ namespace MapleOriginLauncher
 
         private void process_Exited(object sender, EventArgs e)
         {
+            updateLabel(label, "Ready to play.");
             updateButton(button, null, true);
         }
 

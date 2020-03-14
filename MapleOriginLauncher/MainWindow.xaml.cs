@@ -1,18 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 
 namespace MapleOriginLauncher
 {
@@ -56,6 +44,12 @@ namespace MapleOriginLauncher
             }
             Dispatcher.Invoke(() =>
             {
+                if (launcher.LauncherNeedsUpdate())
+                {
+                    label.Content = "Launcher is outdated! Please use the Restart button to get the latest MapleOriginLauncher";
+                    button.Content = "Restart";
+                }
+
                 if (button.Content.Equals("Play Game"))
                 {
                     label.Content = "Ready to play.";
@@ -64,6 +58,7 @@ namespace MapleOriginLauncher
                 {
                     label.Content = "Updates pending!";
                 }
+                progressBar.Value = 100;
             });
         }
 
@@ -78,7 +73,11 @@ namespace MapleOriginLauncher
         private void Button_Click(object sender, RoutedEventArgs e)
         {
             button.IsEnabled = false;
-            if (button.Content.Equals("Play Game"))
+            if (launcher.LauncherNeedsUpdate())
+            {
+                launcher.RunLauncherUpdater();
+            }
+            else if (button.Content.Equals("Play Game"))
             {
                 launcher.PlayGame();
             }
