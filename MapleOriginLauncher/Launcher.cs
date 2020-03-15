@@ -152,7 +152,7 @@ namespace MapleOriginLauncher
         {
             using (var webClient = new WebClient())
             {
-                System.IO.Directory.CreateDirectory(path); // create folder if not exists
+                Directory.CreateDirectory(path); // create folder if not exists
                 webClient.QueryString.Add("url", url);
                 webClient.QueryString.Add("path", path);
                 webClient.QueryString.Add("filename", filename);

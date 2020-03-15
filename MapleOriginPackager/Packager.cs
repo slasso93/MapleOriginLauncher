@@ -1,57 +1,204 @@
-﻿using System;
+﻿using Google.Apis.Auth.OAuth2;
+using Google.Apis.Drive.v3;
+using Google.Apis.Services;
+using Google.Apis.Util.Store;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Security.Cryptography;
-using System.Text;
-using System.Threading.Tasks;
+using System.Threading;
 
 namespace MapleOriginPackager
 {
     class Program
     {
-        static void Main(string[] args)
+
+        static string[] Scopes = { DriveService.Scope.Drive };
+        static string ApplicationName = "MapleOriginPackager";
+        static string patchDriveFolder = "1IIjL6-6BP6SBHqK4xQCzY3NcONcT6URg"; // patch folder containing latest folder and all patch.zip files
+        static string latestDriveFolder = "1JjbaNSz3e_dqxjZLUrFrqYV5YZRSNq2L"; // folder for all latest separately zipped files
+        static string separate = "=======================================================================================================================";
+
+        static int Main(string[] args)
         {
-            if (args.Length != 3)
+            if (args.Length != 4)
             {
-                Console.WriteLine("Please enter the source and destination paths. EX: mapleoriginpacker.exe path/to/latest_unpacked/ path/to/downloads/latest path/to/downloads/checksum.txt");
+                Console.WriteLine("Command format:");
+                Console.WriteLine("'MapleOriginPacker.exe <path_to_patchfolder> <output_patchfolder> <path_to_downloads> <true|false>' (flag is whether or not to zip and upload to google drive)");
             }
             else
             {
                 string sourceFolder = args[0];
                 string destFolder = args[1];
-                string checksumPath = args[2];
-                Console.WriteLine("Packing files in " + sourceFolder);
-                List<string> updatedFiles = overwriteChecksums(sourceFolder, checksumPath); // replace the checksums for this patch
+                string downloadsDir = args[2];
+                bool shouldCreatePatch;
+                Boolean.TryParse(args[3], out shouldCreatePatch);
+
+                Console.WriteLine("Showing available patch folders.");
+                DirectoryInfo dirInfo = new DirectoryInfo(sourceFolder);
+
+                List<string> patchFolders = new List<string>();
+                foreach (var dir in dirInfo.EnumerateDirectories().OrderByDescending(d => d.CreationTime))
+                {
+                    Console.WriteLine((patchFolders.Count + 1) + ": {0}", dir.Name);
+                    patchFolders.Add(dir.FullName);
+                }
+
+                Console.Write("Please enter a #: ");
+                int sel;
+                string input = Console.ReadLine();
+                if (input.Equals("q") || input.Equals("quit") || input.Equals("exit"))
+                    return 0;
+                bool parsed = Int32.TryParse(input, out sel);
+                if (sel < 1 || sel > patchFolders.Count)
+                    sel = 1;
+
+                string patchFolder = patchFolders[sel - 1] + "\\";
+                Console.WriteLine(separate);
+                Console.WriteLine("Packing files in " + patchFolder);
+                Dictionary<string, string> checksumMap = new Dictionary<string, string>();
+                List<string> updatedFiles = overwriteChecksums(checksumMap, patchFolder, downloadsDir + "\\checksum.txt"); // replace the checksums for this patch
 
                 if (updatedFiles.Count > 0)
-                    Console.WriteLine("Outdated: " + String.Join(", ", updatedFiles.Select(x => Path.GetFileName(x))));
-                else
-                    Console.WriteLine("Nothing to zip, all files up to date.");
-                addToDest(updatedFiles, destFolder);
-            }
-            Console.WriteLine("Done, press any key to continue...");
-            Console.ReadLine();
-        }
-
-        private static void addToDest(List<string> files, string destFolder)
-        {
-            foreach (var file in files)
-            {
-                string filename = Path.GetFileName(file);
-                if (filename.Contains("MapleOriginLauncher"))
                 {
-                    if (File.Exists(destFolder + filename))
-                    {
-                        File.Delete(destFolder + filename);
-                    }
-                    Console.WriteLine("Copying " + filename);
-                    File.Copy(file, destFolder + filename);
+                    Console.WriteLine(separate);
+                    Console.WriteLine("Outdated: " + String.Join(", ", updatedFiles.Select(x => Path.GetFileName(x))));
+                    updateOutdated(checksumMap, updatedFiles, destFolder);
                 }
                 else
                 {
-                    using (FileStream stream = new FileStream(destFolder + filename.Split('.')[0] + ".zip", FileMode.Create))
+                    Console.WriteLine();
+                    Console.WriteLine("All files up to date");
+                }
+                writeChecksumFile(checksumMap, downloadsDir + "\\checksum.txt");
+
+                if (shouldCreatePatch)
+                {
+                    if (updatedFiles.Count == 0)
+                    {
+                        Console.WriteLine("Nothing to patch");
+                    }
+                    else
+                    {
+                        string patchZip = createPatch(patchFolder, destFolder);
+                        string link = uploadToDrive(patchZip, patchDriveFolder, null);
+                        File.WriteAllText(downloadsDir + "\\version.txt", String.Format("{0},{1}", Path.GetFileName(patchZip), link));
+                    }
+                }
+            }
+            Console.WriteLine(separate);
+            Console.Write("Done, press any key to continue...");
+            Console.ReadLine();
+            return 0;
+        }
+
+        private static string uploadToDrive(string fileToUpload, string parentDriveFolder, string fileId)
+        {
+            var service = initGoogleAuth();
+            Google.Apis.Drive.v3.Data.File fileMetaData = new Google.Apis.Drive.v3.Data.File();
+            fileMetaData.Name = Path.GetFileName(fileToUpload);
+            fileMetaData.Parents = new string[] { parentDriveFolder };
+
+            Console.WriteLine("Uploading to Google Drive: " + fileMetaData.Name);
+            FilesResource.CreateMediaUpload createRequest = null;
+            FilesResource.UpdateMediaUpload updateRequest = null;
+            using (var stream = new FileStream(fileToUpload, FileMode.Open))
+            {
+                if (fileId != null)
+                {
+                    updateRequest = service.Files.Update(fileMetaData, fileId, stream, fileMetaData.MimeType);
+                    updateRequest.Fields = "id";
+                    updateRequest.Upload();
+                }
+                else
+                {
+                    createRequest = service.Files.Create(fileMetaData, stream, fileMetaData.MimeType);
+                    createRequest.Fields = "id";
+                    createRequest.Upload();
+                }
+            }
+            fileId = createRequest != null ? fileId = createRequest.ResponseBody.Id : fileId;
+            Google.Apis.Drive.v3.Data.Permission permissionMetaData = new Google.Apis.Drive.v3.Data.Permission();
+            permissionMetaData.Role = "reader";
+            permissionMetaData.Type = "anyone";
+            service.Permissions.Create(permissionMetaData, fileId).Execute();
+            string shareableUrl = "https://drive.google.com/uc?export=download&id=" + fileId;
+            Console.WriteLine("Successfully uploaded " + fileMetaData.Name + ": " + shareableUrl);
+
+            return shareableUrl;
+        }
+
+        private static DriveService initGoogleAuth()
+        {
+            UserCredential credential;
+
+            using (var stream =
+                new FileStream("credentials.json", FileMode.Open, FileAccess.Read))
+            {
+                // The file token.json stores the user's access and refresh tokens, and is created
+                // automatically when the authorization flow completes for the first time.
+                string credPath = "token.json";
+                credential = GoogleWebAuthorizationBroker.AuthorizeAsync(
+                    GoogleClientSecrets.Load(stream).Secrets,
+                    Scopes,
+                    "user",
+                    CancellationToken.None,
+                    new FileDataStore(credPath, true)).Result;
+
+            }
+            return new DriveService(new BaseClientService.Initializer()
+            {
+                HttpClientInitializer = credential,
+                ApplicationName = ApplicationName,
+            });
+        }
+
+        private static string createPatch(string patchFolder, string destFolder)
+        {
+            string patchname = "MapleOrigin_patch_" + DateTime.Now.ToString("MM_dd_yyyy");
+            string finalZip = destFolder + "\\" + patchname + ".zip";
+
+            Console.WriteLine(separate);
+            Console.WriteLine("Creating new patch: " + patchname);
+
+            if (File.Exists(finalZip)) // if it exists are we're running the packager again wtih new files, delete the old zip first
+            {
+                File.Delete(finalZip);
+            }
+
+            using (var zip = ZipFile.Open(finalZip, ZipArchiveMode.Create))
+            {
+                foreach (var file in new DirectoryInfo(patchFolder).EnumerateFiles())
+                {
+                    zip.CreateEntryFromFile(file.FullName, file.Name, CompressionLevel.Optimal);
+                }
+            }
+            return finalZip;
+        }
+
+        private static void updateOutdated(Dictionary<string, string> checksumMap, List<string> files, string destFolder)
+        {
+            Directory.CreateDirectory(destFolder + "\\latest\\");
+            foreach (var file in files)
+            {
+                Console.WriteLine();
+                string filename = Path.GetFileName(file);
+                string dest = destFolder + "\\latest\\" + filename;
+                if (filename.Contains("MapleOriginLauncher"))
+                {
+                    if (File.Exists(dest))
+                    {
+                        File.Delete(dest);
+                    }
+                    Console.WriteLine("Copying " + filename);
+                    File.Copy(file, dest);
+                }
+                else
+                {
+                    dest = dest.Split('.')[0] + ".zip";
+                    using (FileStream stream = new FileStream(dest, FileMode.Create))
                     {
                         using (var arch = new ZipArchive(stream, ZipArchiveMode.Create))
                         {
@@ -60,43 +207,70 @@ namespace MapleOriginPackager
                         }
                     }
                 }
+
+                string fileId = null;
+                string val = checksumMap[filename];
+                if (val.LastIndexOf("id=") != -1)
+                {
+                    int idIdx = val.LastIndexOf("id=") + 3;
+                    fileId = val.Substring(idIdx);
+                }
+
+                string link = uploadToDrive(dest, latestDriveFolder, fileId);
+                if (fileId == null) // append shareable link if this is the first upload
+                    checksumMap[filename] += "," + link;
             }
+
         }
 
-        private static List<string> overwriteChecksums(string folder, string checksumTxt)
+        private static void writeChecksumFile(Dictionary<string, string> checksumMap, string checksumTxt)
+        {
+            string launcherVal;
+            if (checksumMap.TryGetValue("MapleOriginLauncher.exe", out launcherVal))
+                checksumMap.Remove("MapleOriginLauncher.exe");
+
+            List<string> newLines = checksumMap.Select(e => e.Key + "," + e.Value).OrderBy(line => line.Split(',').First()).ToList();
+            if (launcherVal != null)
+                newLines.Insert(0, "MapleOriginLauncher.exe" + "," + launcherVal);
+            File.WriteAllLines(checksumTxt, newLines);
+        }
+
+        private static List<string> overwriteChecksums(Dictionary<String, String> checksumMap, string folder, string checksumTxt)
         {
             List<string> updatedFiles = new List<string>();
             try
             {
-                string line;
                 using (StreamReader checksumFile = File.Exists(checksumTxt) ? new StreamReader(checksumTxt) : null)
                 {
                     Console.WriteLine("Calculating checksums");
-                    List<string> newLines = new List<string>();
-
 
                     string launcherName = "MapleOriginLauncher.exe";
-                    string launcherChecksum = checksumDiff(newLines, checksumFile, folder + launcherName);
-                    if (launcherChecksum != null)
+                    if (File.Exists(folder + launcherName))
+                        checksumDiff(checksumMap, updatedFiles, checksumFile, folder + launcherName);
+                    else if (checksumFile != null && checksumFile.Peek() != -1)
                     {
-                        updatedFiles.Add(folder + launcherName);
-                    }
-                    
-                    foreach (var file in Directory.GetFiles(folder).OrderByDescending(name => name).Reverse().Where(s => !s.Contains("MapleOriginLauncher")))
-                    {
-                        string newChecksum = checksumDiff(newLines, checksumFile, file);
-                        if (newChecksum != null)
+                        string launcherLine = checksumFile.ReadLine();
+                        if (launcherLine.StartsWith(launcherName))
                         {
-                            updatedFiles.Add(file);
-                            newLines.Add(Path.GetFileName(file) + "," + newChecksum);
+                            string[] line = launcherLine.Split(',');
+                            string k = line[0];
+                            string v = line[1];
+                            if (line.Length == 3) // has url
+                                v += ',' + line[2];
+                            checksumMap.Add(k, v);
+                        }
+                        else
+                        {
+                            checksumFile.BaseStream.Position = 0;
+                            checksumFile.DiscardBufferedData();
                         }
                     }
-                    File.WriteAllLines(".\\checksum.txt", newLines.ToArray());
+
+                    foreach (var file in Directory.GetFiles(folder).OrderBy(name => name).Where(s => !Path.GetFileName(s).Contains("MapleOriginLauncher")))
+                    {
+                        checksumDiff(checksumMap, updatedFiles, checksumFile, file);
+                    }
                 }
-                if (File.Exists(checksumTxt))
-                    File.Replace(".\\checksum.txt", checksumTxt, null);
-                else
-                    File.Move(".\\checksum.txt", checksumTxt);
             }
             catch (Exception e)
             {
@@ -105,19 +279,43 @@ namespace MapleOriginPackager
             return updatedFiles; // we will only zip these updated files
         }
 
-        private static string checksumDiff(List<string> newLines, StreamReader checksumFile, string path)
+        private static void checksumDiff(Dictionary<string, string> checksumMap, List<string> updatedFiles, StreamReader checksumFile, string file)
         {
-            bool add = true;
-            string sourceChecksum = calculateChecksum(path);
-            newLines.Add(Path.GetFileName(path) + "," + sourceChecksum);
+            string sourceChecksum = calculateChecksum(file);
 
             if (checksumFile != null && checksumFile.Peek() != -1)
             {
-                string line = checksumFile.ReadLine();
-                string oldChecksum = line.Split(',')[1];
-                add = !oldChecksum.Equals(sourceChecksum);
+                string line;
+                while ((line = checksumFile.ReadLine()) != null)
+                {
+                    string[] lineSplit = line.Split(',');
+                    string nameInFile = lineSplit[0];
+                    string oldChecksum = lineSplit[1];
+                    string url = lineSplit.Length == 3 ? lineSplit[2] : null; // has url
+
+                    if (!Path.GetFileName(file).Equals(nameInFile)) // name in file could be Base.wz, but we are looking for Character.wz, for example
+                    {
+                        checksumMap.Add(nameInFile, oldChecksum + (url != null ? "," + url : null)); // keep the old line where it is
+                    }
+                    else if (!oldChecksum.Equals(sourceChecksum)) // we are replacing this line if the checksums dont match
+                    {
+                        checksumMap.Add(nameInFile, sourceChecksum + (url != null ? "," + url : null));
+                        updatedFiles.Add(file);
+                    }
+                    else // we got a checksum match so we will just keep the row
+                    {
+                        checksumMap.Add(nameInFile, sourceChecksum + (url != null ? "," + url : null));
+                        break;
+                    }
+
+                }
             }
-            return add ? sourceChecksum : null;
+
+            if (!checksumMap.ContainsKey(Path.GetFileName(file))) // checksum is empty or missing or the file is new
+            {
+                checksumMap.Add(Path.GetFileName(file), sourceChecksum);
+                updatedFiles.Add(file);
+            }
         }
 
         private static string calculateChecksum(string filename)
