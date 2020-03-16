@@ -459,15 +459,29 @@ namespace MapleOriginLauncher
                         content = reader.ReadToEnd();
                     }
 
+                    int linkIndex = content.LastIndexOf("href=\"/uc?");
+                    if (linkIndex < 0)
+                        return;
+
                     int filenameIndex = content.IndexOf(filename + "</a>");
                     int fileSizeIndex = content.IndexOf(">", filenameIndex) + 1;
                     int fileSizeIndexLast = content.IndexOf(")</span>", fileSizeIndex);
                     string fileSizeStr = content.Substring(fileSizeIndex, fileSizeIndexLast - fileSizeIndex).Trim().Substring(1);
-                    fileSize = Int64.Parse(fileSizeStr.Substring(0, fileSizeStr.Length - 1)) * 1024L * 1024L * (fileSizeStr.Last() == 'G' ? 1024L : 1L);
-                    
-                    int linkIndex = content.LastIndexOf("href=\"/uc?");
-                    if (linkIndex < 0)
-                        return;
+                    double fileSizeDouble;
+                    if (Double.TryParse(fileSizeStr.Substring(0, fileSizeStr.Length - 1), out fileSizeDouble))
+                    {
+                        int pow = 2; // assume MB as default:  20 MB * 1024 * 1024 = bytes
+                        if (fileSizeStr.Last() == 'G')
+                            pow = 3;
+                        double conversion = Math.Pow(1024, pow);
+
+                        fileSize = (long) (fileSizeDouble * conversion);
+                    }
+                    else
+                    {
+                        show(String.Format("{0}: [size: {1}], range {2}-{3} (actual: {4})", filename, fileSizeStr, fileSizeIndex, fileSizeIndexLast, downloadedFile.Length));
+                    }
+
 
                     linkIndex += 6;
                     int linkEnd = content.IndexOf('"', linkIndex);
