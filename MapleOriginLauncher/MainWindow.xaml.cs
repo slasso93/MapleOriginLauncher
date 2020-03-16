@@ -1,4 +1,5 @@
-﻿using System.Threading;
+﻿using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 
@@ -26,6 +27,10 @@ namespace MapleOriginLauncher
             {
                 labelUpdate();
             });
+            if (File.Exists("temp\\MapleOriginLauncherUpdater.exe"))
+            {
+                File.Delete("temp\\MapleOriginLauncherUpdater.exe");
+            }
         }
 
         private void labelUpdate()
@@ -49,14 +54,16 @@ namespace MapleOriginLauncher
                     label.Content = "Launcher is outdated! Please use the Restart button to get the latest MapleOriginLauncher";
                     button.Content = "Restart";
                 }
-
-                if (button.Content.Equals("Play Game"))
+                else
                 {
-                    label.Content = "Ready to play.";
-                }
-                else if (button.Content.Equals("Update Game"))
-                {
-                    label.Content = "Updates pending!";
+                    if (button.Content.Equals("Play Game"))
+                    {
+                        label.Content = "Ready to play.";
+                    }
+                    else if (button.Content.Equals("Update Game"))
+                    {
+                        label.Content = "Updates pending!";
+                    }
                 }
                 progressBar.Value = 100;
             });

@@ -17,8 +17,8 @@ namespace MapleOriginPackager
 
         static string[] Scopes = { DriveService.Scope.Drive };
         static string ApplicationName = "MapleOriginPackager";
-        static string patchDriveFolder = "1IIjL6-6BP6SBHqK4xQCzY3NcONcT6URg"; // patch folder containing latest folder and all patch.zip files
-        static string latestDriveFolder = "1JjbaNSz3e_dqxjZLUrFrqYV5YZRSNq2L"; // folder for all latest separately zipped files
+        static string patchDriveFolder = "1Jc3y4a3iD9b3BAldgIwue5_Rc1NsyrcH"; // patch folder containing latest folder and all patch.zip files
+        static string latestDriveFolder = "1bG3B7Y-H37km1phbyfOmH0rnoSijeWK4"; // folder for all latest separately zipped files
         static string separate = "=======================================================================================================================";
 
         static int Main(string[] args)
@@ -82,9 +82,12 @@ namespace MapleOriginPackager
                     }
                     else
                     {
-                        string patchZip = createPatch(patchFolder, destFolder);
+                        string patchName = "MapleOrigin_patch_" + DateTime.Now.ToString("MM_dd_yyyy");
+                        string patchZip = destFolder + "\\" + patchName + ".zip";
+                        List<string> versionLines = createPatch(patchFolder, patchZip, patchName);
                         string link = uploadToDrive(patchZip, patchDriveFolder, null);
-                        File.WriteAllText(downloadsDir + "\\version.txt", String.Format("{0},{1}", Path.GetFileName(patchZip), link));
+                        versionLines.Insert(0, String.Format("{0},{1}", Path.GetFileName(patchZip), link));
+                        File.WriteAllLines(downloadsDir + "\\version.txt", versionLines);
                     }
                 }
             }
@@ -155,13 +158,12 @@ namespace MapleOriginPackager
             });
         }
 
-        private static string createPatch(string patchFolder, string destFolder)
+        private static List<string> createPatch(string patchFolder, string finalZip, string patchName)
         {
-            string patchname = "MapleOrigin_patch_" + DateTime.Now.ToString("MM_dd_yyyy");
-            string finalZip = destFolder + "\\" + patchname + ".zip";
+            List<string> versionLines = new List<string>();
 
             Console.WriteLine(separate);
-            Console.WriteLine("Creating new patch: " + patchname);
+            Console.WriteLine("Creating new patch: " + patchName);
 
             if (File.Exists(finalZip)) // if it exists are we're running the packager again wtih new files, delete the old zip first
             {
@@ -172,10 +174,11 @@ namespace MapleOriginPackager
             {
                 foreach (var file in new DirectoryInfo(patchFolder).EnumerateFiles())
                 {
+                    versionLines.Add(file.Name);
                     zip.CreateEntryFromFile(file.FullName, file.Name, CompressionLevel.Optimal);
                 }
             }
-            return finalZip;
+            return versionLines;
         }
 
         private static void updateOutdated(Dictionary<string, string> checksumMap, List<string> files, string destFolder)

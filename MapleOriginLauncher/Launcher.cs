@@ -22,12 +22,14 @@ namespace MapleOriginLauncher
 
         private string BASE_URL = "http://www.mapleorigin.net/downloads/";
         private string checksumUrl;
-        private string patchPath;
+        private string versionUrl;
+        private string updaterUrl;
 
         private bool launcherNeedsUpdate;
         private bool success;
         private double currentProgress;
         private Dictionary<string, int> filesToPatch; // filename, percentage downloaded
+        private Dictionary<string, string> patchPaths; // filename, google drive link
 
         public Launcher(ProgressBar progressBar, Button button, Label label)
         {
@@ -38,8 +40,10 @@ namespace MapleOriginLauncher
             this.button = button;
             this.label = label;
             this.checksumUrl = BASE_URL + "checksum.txt";
-            this.patchPath = BASE_URL + "latest/";
+            this.versionUrl = BASE_URL + "version.txt";
+            this.updaterUrl = BASE_URL + "MapleOriginLauncherUpdater.exe";
             this.filesToPatch = new Dictionary<string, int>();
+            this.patchPaths = new Dictionary<string, string>();
         }
 
         public bool LauncherNeedsUpdate()
@@ -58,7 +62,7 @@ namespace MapleOriginLauncher
             {
                 try
                 {
-                    download(patchPath + "MapleOriginLauncherUpdater.exe", "temp\\", "MapleOriginLauncherUpdater.exe", false);
+                    download(updaterUrl, "temp\\", "MapleOriginLauncherUpdater.exe", false);
                     Process[] pname = Process.GetProcessesByName("MapleOriginLauncherUpdater"); // If another updater is already in progress, dont do anything
                     if (pname.Length == 0)
                     {
@@ -115,7 +119,7 @@ namespace MapleOriginLauncher
                 foreach (string zipfile in filesToPatch.Keys)
                 {
                     if (!File.Exists("temp\\" + zipfile))
-                        downloads.Add(download(patchPath + zipfile, "temp\\", zipfile));
+                        downloads.Add(download(patchPaths[zipfile], "temp\\", zipfile));
                 }
 
                 await Task.WhenAll(downloads);
@@ -165,7 +169,8 @@ namespace MapleOriginLauncher
 
                     webClient.DownloadFileCompleted += new AsyncCompletedEventHandler(webClient_DownloadFileCompleted);
                     return webClient.DownloadFileTaskAsync(new Uri(url), path + filename);
-                } else
+                }
+                else
                 {
                     webClient.DownloadFile(url, path + filename);
                     return null;
@@ -173,48 +178,99 @@ namespace MapleOriginLauncher
             }
         }
 
-        private void processChecksums(string checksumFile)
+        private async void processChecksums(string checksumFile)
         {
             string line;
-            StreamReader file = new StreamReader(checksumFile);
-            currentProgress = 0;
-
-
-
-            while ((line = file.ReadLine()) != null)
+            using (StreamReader file = new StreamReader(checksumFile))
             {
+                currentProgress = 0;
+
                 // first line will be MapleOriginLauncher.exe
+                string[] firstLine = file.ReadLine().Split(',');
+                string launcherName = firstLine[0];
+                string remoteLauncherChecksum = firstLine[1];
+                string localLauncherChecksum = calculateChecksum(launcherName);
 
-
-                string[] split = line.Split(',');
-                string filename = split[0];
-                string remoteChecksum = split[1];
-                string localChecksum = calculateChecksum(filename);
-                if (!remoteChecksum.Equals(localChecksum))
+                List<string> filesInPatch = new List<string>();
+                if (!remoteLauncherChecksum.Equals(localLauncherChecksum))
                 {
-                    if (currentProgress == 0)
-                    {
-                        Console.WriteLine("Launcher is outdated!");
-                        launcherNeedsUpdate = true;
-                        break;
-                    }
-                    Console.WriteLine("Adding to queue: " + filename);
-                    filesToPatch.Add(filename.Split('.')[0] + ".zip", 0);
+                    Console.WriteLine("Launcher is outdated!");
+                    launcherNeedsUpdate = true;
                 }
-                currentProgress += (100.0 / totalFiles);
-                updateProgress(progressBar, currentProgress);
-            }
-            if (filesToPatch.Count == 0) // player is up to date
-            {
-                updateButton(button, "Play Game", true);
-                filesToPatch = null;
-            }
-            else // not up to date
-            {
-                updateButton(button, "Update Game", true);
-            }
+                else
+                {
+                    bool patchUpdate = false;
+                    await download(versionUrl, "temp\\", "version.txt", true);
 
-            file.Close();
+                    using (StreamReader newVersion = new StreamReader("temp\\version.txt"))
+                    {
+                        string[] versionLine = newVersion.ReadLine().Split(',');
+                        string version = versionLine[0];
+                        string patchLink = versionLine[1];
+                        if (!File.Exists("version.txt")) // if we dont have a versions.txt or version doesn't match, we will add all files from this patch to checksum exclusion (patch.zip will have these so we only need to checksum the others)
+                        {
+                            using (StreamWriter w = new StreamWriter("version.txt"))
+                            {
+                                w.WriteLine(version + "," + patchLink);
+                                w.Write(newVersion.ReadToEnd());
+                                newVersion.BaseStream.Position = 0;
+                                newVersion.DiscardBufferedData();
+                                newVersion.ReadLine();
+                            }
+                            patchUpdate = true;
+                        }
+                        else
+                        {
+                            using (StreamReader localVersion = new StreamReader("version.txt"))
+                            {
+                                patchUpdate = !localVersion.ReadLine().Split(',')[0].Equals(version);
+                            }
+                        }
+
+                        if (patchUpdate)
+                        {
+                            filesToPatch.Add(version, 0);
+                            patchPaths.Add(version, patchLink);
+                            string patchLine;
+                            while ((patchLine = newVersion.ReadLine()) != null)
+                            {
+                                filesInPatch.Add(patchLine);
+                            }
+                        }
+                    }
+                    File.Delete("temp\\version.txt");
+
+                    while ((line = file.ReadLine()) != null)
+                    {
+                        string[] split = line.Split(',');
+                        string filename = split[0];
+                        string remoteChecksum = split[1];
+                        string fileLink = split[2];
+                        if (!filesInPatch.Contains(filename))
+                        {
+                            string localChecksum = calculateChecksum(filename);
+                            if (!remoteChecksum.Equals(localChecksum))
+                            {
+                                Console.WriteLine("Adding to queue: " + filename);
+                                filesToPatch.Add(filename.Split('.')[0] + ".zip", 0);
+                                patchPaths.Add(filename.Split('.')[0] + ".zip", fileLink);
+                            }
+                        }
+                        currentProgress += (100.0 / totalFiles);
+                        updateProgress(progressBar, currentProgress);
+                    }
+                }
+                if (filesToPatch.Count == 0) // player is up to date
+                {
+                    updateButton(button, "Play Game", true);
+                    filesToPatch = null;
+                }
+                else // not up to date
+                {
+                    updateButton(button, "Update Game", true);
+                }
+            }
+            File.Delete("temp\\checksum.txt");
         }
 
         private string calculateChecksum(string filename)
@@ -249,7 +305,7 @@ namespace MapleOriginLauncher
                         foreach (ZipArchiveEntry entry in archive.Entries) // only 1 file in the zip though
                         {
                             updateLabel(label, "Extracting: " + entry.FullName + " (" + count + "/" + filesToPatch.Count + ")");
-                            Console.WriteLine("Extracting " + zipPath + filename + " to " + entry.FullName);
+                            Console.WriteLine("Extracting " + entry.FullName + " from " + zipPath + filename);
                             entry.ExtractToFile(entry.FullName, true);
                         }
                     }
