@@ -13,9 +13,8 @@ namespace MapleOriginLauncherUpdater
         {
             if (args.Length == 1)
             {
-                string workingPath = Path.GetDirectoryName(Process.GetCurrentProcess().MainModule.FileName) + "\\"; // ex: C:\mapleorigin\temp\
-                string newLauncher = workingPath + "MapleOriginLauncher.exe";
-                string oldLauncher = workingPath + @"..\" + args[0];
+                string newLauncher = "temp\\MapleOriginLauncher.exe";
+                string oldLauncher = args[0];
 
                 downloadLauncher(newLauncher);
 
@@ -49,7 +48,7 @@ namespace MapleOriginLauncherUpdater
                 Console.WriteLine("Downloading new launcher");
                 try
                 {
-                    webClient.DownloadFile(new Uri("http://www.mapleorigin.net/downloads/latest/MapleOriginLauncher.exe"), tempExe);
+                    webClient.DownloadFile(new Uri("https://drive.google.com/uc?export=download&id=1nRgB8A55QP331aR0VnuPeHcmz3E-BvfL"), tempExe);
                 }
                 catch (Exception e)
                 {
@@ -94,7 +93,7 @@ namespace MapleOriginLauncherUpdater
                         File.Delete(oldLauncher);
                     }
 
-                    Console.WriteLine("Moving new " + newLauncher + " to MapleOrigin directory");
+                    Console.WriteLine("Moving " + newLauncher + " to MapleOrigin directory");
                     File.Move(newLauncher, "MapleOriginLauncher.exe"); // relative path is already maple origin folder due to forked process from Launcher which resides there
                 }
             }

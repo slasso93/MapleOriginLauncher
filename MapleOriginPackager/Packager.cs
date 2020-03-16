@@ -15,7 +15,13 @@ namespace MapleOriginPackager
     class Program
     {
 
-        static string[] Scopes = { DriveService.Scope.Drive };
+        static string[] Scopes = new string[] {
+            DriveService.Scope.Drive,
+            DriveService.Scope.DriveFile,
+            DriveService.Scope.DriveMetadata,
+            DriveService.Scope.DriveAppdata,
+            DriveService.Scope.DriveScripts
+        };
         static string ApplicationName = "MapleOriginPackager";
         static string patchDriveFolder = "1Jc3y4a3iD9b3BAldgIwue5_Rc1NsyrcH"; // patch folder containing latest folder and all patch.zip files
         static string latestDriveFolder = "1bG3B7Y-H37km1phbyfOmH0rnoSijeWK4"; // folder for all latest separately zipped files
@@ -85,9 +91,12 @@ namespace MapleOriginPackager
                         string patchName = "MapleOrigin_patch_" + DateTime.Now.ToString("MM_dd_yyyy");
                         string patchZip = destFolder + "\\" + patchName + ".zip";
                         List<string> versionLines = createPatch(patchFolder, patchZip, patchName);
-                        string link = uploadToDrive(patchZip, patchDriveFolder, null);
-                        versionLines.Insert(0, String.Format("{0},{1}", Path.GetFileName(patchZip), link));
-                        File.WriteAllLines(downloadsDir + "\\version.txt", versionLines);
+                        if (versionLines.Count > 0)
+                        {
+                            string link = uploadToDrive(patchZip, patchDriveFolder, null);
+                            versionLines.Insert(0, String.Format("{0},{1}", Path.GetFileName(patchZip), link));
+                            File.WriteAllLines(downloadsDir + "\\version.txt", versionLines);
+                        }
                     }
                 }
             }
@@ -111,22 +120,24 @@ namespace MapleOriginPackager
             {
                 if (fileId != null)
                 {
-                    updateRequest = service.Files.Update(fileMetaData, fileId, stream, fileMetaData.MimeType);
+                    updateRequest = service.Files.Update(new Google.Apis.Drive.v3.Data.File(), fileId, stream, null);
                     updateRequest.Fields = "id";
                     updateRequest.Upload();
                 }
                 else
                 {
-                    createRequest = service.Files.Create(fileMetaData, stream, fileMetaData.MimeType);
+                    createRequest = service.Files.Create(fileMetaData, stream, null);
                     createRequest.Fields = "id";
                     createRequest.Upload();
                 }
             }
             fileId = createRequest != null ? fileId = createRequest.ResponseBody.Id : fileId;
-            Google.Apis.Drive.v3.Data.Permission permissionMetaData = new Google.Apis.Drive.v3.Data.Permission();
-            permissionMetaData.Role = "reader";
-            permissionMetaData.Type = "anyone";
-            service.Permissions.Create(permissionMetaData, fileId).Execute();
+
+            Google.Apis.Drive.v3.Data.Permission readPermission = new Google.Apis.Drive.v3.Data.Permission();
+            readPermission.Role = "reader";
+            readPermission.Type = "anyone";
+            service.Permissions.Create(readPermission, fileId).Execute();
+
             string shareableUrl = "https://drive.google.com/uc?export=download&id=" + fileId;
             Console.WriteLine("Successfully uploaded " + fileMetaData.Name + ": " + shareableUrl);
 
@@ -174,10 +185,14 @@ namespace MapleOriginPackager
             {
                 foreach (var file in new DirectoryInfo(patchFolder).EnumerateFiles())
                 {
-                    versionLines.Add(file.Name);
-                    zip.CreateEntryFromFile(file.FullName, file.Name, CompressionLevel.Optimal);
+                    if (!file.Name.Equals("MapleOriginLauncher.exe"))
+                    {
+                        versionLines.Add(file.Name);
+                        zip.CreateEntryFromFile(file.FullName, file.Name, CompressionLevel.Optimal);
+                    }
                 }
             }
+
             return versionLines;
         }
 
@@ -272,6 +287,20 @@ namespace MapleOriginPackager
                     foreach (var file in Directory.GetFiles(folder).OrderBy(name => name).Where(s => !Path.GetFileName(s).Contains("MapleOriginLauncher")))
                     {
                         checksumDiff(checksumMap, updatedFiles, checksumFile, file);
+                    }
+                    if (checksumFile != null && checksumFile.Peek() != -1)
+                    {
+                        string remainingLines;
+                        while ((remainingLines = checksumFile.ReadLine()) != null)
+                        {
+                            string[] line = remainingLines.Split(',');
+                            string k = line[0];
+                            string v = line[1];
+                            if (line.Length == 3) // has url
+                                v += ',' + line[2];
+                            checksumMap.Add(k, v);
+                        }
+
                     }
                 }
             }

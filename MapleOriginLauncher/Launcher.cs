@@ -62,7 +62,7 @@ namespace MapleOriginLauncher
             {
                 try
                 {
-                    download(updaterUrl, "temp\\", "MapleOriginLauncherUpdater.exe", false);
+                    download(updaterUrl, "temp\\", "MapleOriginLauncherUpdater.exe", false); // download updater syncronously
                     Process[] pname = Process.GetProcessesByName("MapleOriginLauncherUpdater"); // If another updater is already in progress, dont do anything
                     if (pname.Length == 0)
                     {
@@ -212,12 +212,13 @@ namespace MapleOriginLauncher
                             using (StreamWriter w = new StreamWriter("version.txt"))
                             {
                                 w.WriteLine(version + "," + patchLink);
-                                w.Write(newVersion.ReadToEnd());
+                                if (newVersion.Peek() != -1)
+                                    w.Write(newVersion.ReadToEnd());
                                 newVersion.BaseStream.Position = 0;
                                 newVersion.DiscardBufferedData();
                                 newVersion.ReadLine();
                             }
-                            patchUpdate = true;
+                            patchUpdate = !version.Equals("0");
                         }
                         else
                         {
