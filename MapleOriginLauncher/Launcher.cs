@@ -53,7 +53,7 @@ namespace MapleOriginLauncher
 
         public async void CheckForUpdates()
         {
-            await Task.Run(() => download(checksumUrl, "temp\\", "checksum.txt", true)); // download checksum
+            await Task.Run(() => download(null, checksumUrl, "temp\\", "checksum.txt", -1, true)); // download checksum
         }
 
         public async void RunLauncherUpdater()
@@ -62,7 +62,7 @@ namespace MapleOriginLauncher
             {
                 try
                 {
-                    download(updaterUrl, "temp\\", "MapleOriginLauncherUpdater.exe", false); // download updater syncronously
+                    download(null, updaterUrl, "temp\\", "MapleOriginLauncherUpdater.exe", -1, false); // download updater syncronously
                     Process[] pname = Process.GetProcessesByName("MapleOriginLauncherUpdater"); // If another updater is already in progress, dont do anything
                     if (pname.Length == 0)
                     {
@@ -119,10 +119,14 @@ namespace MapleOriginLauncher
                 foreach (string zipfile in filesToPatch.Keys)
                 {
                     if (!File.Exists("temp\\" + zipfile))
-                        downloads.Add(download(patchPaths[zipfile], "temp\\", zipfile));
+                    {
+                        downloads.Add(DownloadGoogleDriveFileFromURLToPath(patchPaths[zipfile], "temp\\", zipfile));
+                        //downloads.Add(download(null, patchPaths[zipfile], "temp\\", zipfile));
+                    }
                 }
 
                 await Task.WhenAll(downloads);
+                Console.WriteLine("here");
                 int i = 1;
                 currentProgress = 0;
                 foreach (string zipfile in filesToPatch.Keys)
@@ -145,21 +149,33 @@ namespace MapleOriginLauncher
             }
             catch (Exception e) // some file wasn't updated so we don't set it to play
             {
-                show(e.Message + " Please close MapleOrigin and try again!");
+
+                show(e.Message + " Please make sure to close MapleOrigin and try again!");
                 updateButton(button, "Update Game", true);
                 updateProgress(progressBar, 100);
                 success = false;
             }
+            finally
+            {
+                foreach (string zipfile in filesToPatch.Keys)
+                {
+                    if (File.Exists("temp\\" + zipfile))
+                        File.Delete("temp\\" + zipfile);
+                }
+            }
         }
 
-        private Task download(string url, string path, string filename, bool async = true)
+        private Task download(WebClient webClient, string url, string path, string filename, long fileSize, bool async = true)
         {
-            using (var webClient = new WebClient())
+            using (webClient = webClient != null ? webClient : new WebClient())
             {
                 Directory.CreateDirectory(path); // create folder if not exists
+
+                webClient.QueryString.Clear();
                 webClient.QueryString.Add("url", url);
                 webClient.QueryString.Add("path", path);
                 webClient.QueryString.Add("filename", filename);
+                webClient.QueryString.Add("fileSize", fileSize.ToString());
                 webClient.QueryString.Add("startMillis", "" + DateTime.Now.Millisecond);
 
                 Console.WriteLine("url: " + url + ", path: " + path + ", filename: " + filename);
@@ -200,7 +216,7 @@ namespace MapleOriginLauncher
                 else
                 {
                     bool patchUpdate = false;
-                    await download(versionUrl, "temp\\", "version.txt", true);
+                    await download(null, versionUrl, "temp\\", "version.txt", -1, true);
 
                     using (StreamReader newVersion = new StreamReader("temp\\version.txt"))
                     {
@@ -348,6 +364,13 @@ namespace MapleOriginLauncher
         {
             WebClient client = ((WebClient)sender);
             int newPercent = e.ProgressPercentage;
+            if (e.TotalBytesToReceive == -1)
+            {
+                long fileSize;
+                Int64.TryParse(client.QueryString["fileSize"], out fileSize);
+                if (fileSize > 0)
+                    newPercent = (int)(100 * (double)e.BytesReceived / fileSize);
+            }
             if (filesToPatch.Count != 0)
             {
                 string filename = client.QueryString["filename"];
@@ -402,5 +425,90 @@ namespace MapleOriginLauncher
             });
         }
 
+        // credits to @yasirkula: https://stackoverflow.com/a/41821836
+        // modified for async/await and tasks
+        //
+        // Downloading large files from Google Drive prompts a warning screen and
+        // requires manual confirmation. Consider that case and try to confirm the download automatically
+        // if warning prompt occurs
+        private async Task DownloadGoogleDriveFileFromURLToPath(string url, string path, string filename)
+        {
+            using (CookieAwareWebClient webClient = new CookieAwareWebClient())
+            {
+                FileInfo downloadedFile;
+                long fileSize = -1;
+                // Sometimes Drive returns an NID cookie instead of a download_warning cookie at first attempt,
+                // but works in the second attempt
+                for (int i = 0; i < 2; i++)
+                {
+                    await download(webClient, url, path, filename, fileSize, true);
+                    downloadedFile = new FileInfo(path + filename);
+
+                    // Confirmation page is around 50KB, shouldn't be larger than 60KB
+                    if (downloadedFile == null || downloadedFile.Length > 60000)
+                        return;
+
+                    // Downloaded file might be the confirmation page, check it
+                    string content;
+                    using (var reader = downloadedFile.OpenText())
+                    {
+                        // Confirmation page starts with <!DOCTYPE html>, which can be preceeded by a newline
+                        char[] header = new char[20];
+                        int readCount = reader.ReadBlock(header, 0, 20);
+                        if (readCount < 20 || !(new string(header).Contains("<!DOCTYPE html>")))
+                            return;
+
+                        content = reader.ReadToEnd();
+                    }
+
+                    int filenameIndex = content.IndexOf(filename + "</a>");
+                    int fileSizeIndex = content.IndexOf(">", filenameIndex) + 1;
+                    int fileSizeIndexLast = content.IndexOf(")</span>", fileSizeIndex);
+                    string fileSizeStr = content.Substring(fileSizeIndex, fileSizeIndexLast - fileSizeIndex).Trim().Substring(1);
+                    fileSize = Int64.Parse(fileSizeStr.Substring(0, fileSizeStr.Length - 1)) * 1024L * 1024L * (fileSizeStr.Last() == 'G' ? 1024L : 1L);
+                    int linkIndex = content.LastIndexOf("href=\"/uc?");
+                    if (linkIndex < 0)
+                        return;
+
+                    linkIndex += 6;
+                    int linkEnd = content.IndexOf('"', linkIndex);
+                    if (linkEnd < 0)
+                        return;
+
+                    url = "https://drive.google.com" + content.Substring(linkIndex, linkEnd - linkIndex).Replace("&amp;", "&");
+                }
+
+                await download(webClient, url, path, filename, fileSize, true);
+                return;
+            }
+
+        }
+
+        // credits to @yasirkula: https://stackoverflow.com/a/41821836
+        private static FileInfo DownloadFileFromURLToPath(string url, string path, WebClient webClient)
+        {
+            try
+            {
+                if (webClient == null)
+                {
+                    using (webClient = new WebClient())
+                    {
+                        webClient.DownloadFile(url, path);
+                        return new FileInfo(path);
+                    }
+                }
+                else
+                {
+                    webClient.DownloadFile(url, path);
+                    return new FileInfo(path);
+                }
+            }
+            catch (WebException)
+            {
+                return null;
+            }
+        }
+
     }
+
 }

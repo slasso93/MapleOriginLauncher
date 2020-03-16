@@ -82,6 +82,9 @@
       <DependentUpon>App.xaml</DependentUpon>
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="CookieAwareWebClient.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="MessageBoxHelper.cs" />
     <Compile Include="Launcher.cs" />
     <Compile Include="MainWindow.xaml.cs">
