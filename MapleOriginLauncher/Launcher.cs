@@ -70,7 +70,7 @@ namespace MapleOriginLauncher
                         p.StartInfo.FileName = "temp\\MapleOriginLauncherUpdater.exe";
                         p.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
                         p.StartInfo.CreateNoWindow = true;
-                        p.StartInfo.Arguments = System.AppDomain.CurrentDomain.FriendlyName;
+                        p.StartInfo.Arguments = AppDomain.CurrentDomain.FriendlyName;
                         p.Start();
                         updateLabel(label, "Running.");
                     }
@@ -121,12 +121,10 @@ namespace MapleOriginLauncher
                     if (!File.Exists("temp\\" + zipfile))
                     {
                         downloads.Add(DownloadGoogleDriveFileFromURLToPath(patchPaths[zipfile], "temp\\", zipfile));
-                        //downloads.Add(download(null, patchPaths[zipfile], "temp\\", zipfile));
                     }
                 }
 
                 await Task.WhenAll(downloads);
-                Console.WriteLine("here");
                 int i = 1;
                 currentProgress = 0;
                 foreach (string zipfile in filesToPatch.Keys)
@@ -426,7 +424,7 @@ namespace MapleOriginLauncher
         }
 
         // credits to @yasirkula: https://stackoverflow.com/a/41821836
-        // modified for async/await and tasks
+        // modified for async/await and tasks and fileSize in bytes (progress event was always returning 0 progress and -1 totalBytes)
         //
         // Downloading large files from Google Drive prompts a warning screen and
         // requires manual confirmation. Consider that case and try to confirm the download automatically
@@ -466,6 +464,7 @@ namespace MapleOriginLauncher
                     int fileSizeIndexLast = content.IndexOf(")</span>", fileSizeIndex);
                     string fileSizeStr = content.Substring(fileSizeIndex, fileSizeIndexLast - fileSizeIndex).Trim().Substring(1);
                     fileSize = Int64.Parse(fileSizeStr.Substring(0, fileSizeStr.Length - 1)) * 1024L * 1024L * (fileSizeStr.Last() == 'G' ? 1024L : 1L);
+                    
                     int linkIndex = content.LastIndexOf("href=\"/uc?");
                     if (linkIndex < 0)
                         return;
@@ -482,31 +481,6 @@ namespace MapleOriginLauncher
                 return;
             }
 
-        }
-
-        // credits to @yasirkula: https://stackoverflow.com/a/41821836
-        private static FileInfo DownloadFileFromURLToPath(string url, string path, WebClient webClient)
-        {
-            try
-            {
-                if (webClient == null)
-                {
-                    using (webClient = new WebClient())
-                    {
-                        webClient.DownloadFile(url, path);
-                        return new FileInfo(path);
-                    }
-                }
-                else
-                {
-                    webClient.DownloadFile(url, path);
-                    return new FileInfo(path);
-                }
-            }
-            catch (WebException)
-            {
-                return null;
-            }
         }
 
     }
