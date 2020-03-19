@@ -9,6 +9,9 @@ namespace MapleOriginLauncherUpdater
 {
     class Updater
     {
+        static string launcherUrl = "http://34.192.141.86/downloads/latest/MapleOriginLauncher.exe";
+        //static string launcherUrl = "https://drive.google.com/uc?export=download&id=1nRgB8A55QP331aR0VnuPeHcmz3E-BvfL";
+
         public static void Main(string[] args)
         {
             if (args.Length == 1)
@@ -48,7 +51,7 @@ namespace MapleOriginLauncherUpdater
                 Console.WriteLine("Downloading new launcher");
                 try
                 {
-                    webClient.DownloadFile(new Uri("https://drive.google.com/uc?export=download&id=1nRgB8A55QP331aR0VnuPeHcmz3E-BvfL"), tempExe);
+                    webClient.DownloadFile(new Uri(launcherUrl), tempExe);
                 }
                 catch (Exception e)
                 {

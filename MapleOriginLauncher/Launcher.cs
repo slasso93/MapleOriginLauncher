@@ -15,12 +15,14 @@ namespace MapleOriginLauncher
 {
     class Launcher
     {
+        private static bool useCloudStorage = false; // test
+
         private int totalFiles = 18; // for checksum progress
         private ProgressBar progressBar;
         private Button button;
         private Label label;
 
-        private string BASE_URL = "http://www.mapleorigin.net/downloads/";
+        private string BASE_URL = "http://34.192.141.86/downloads/";
         private string checksumUrl;
         private string versionUrl;
         private string updaterUrl;
@@ -120,7 +122,10 @@ namespace MapleOriginLauncher
                 {
                     if (!File.Exists("temp\\" + zipfile))
                     {
-                        downloads.Add(DownloadGoogleDriveFileFromURLToPath(patchPaths[zipfile], "temp\\", zipfile));
+                        if (!useCloudStorage)
+                            downloads.Add(download(null, patchPaths[zipfile], "temp\\", zipfile, -1));
+                        else
+                            downloads.Add(DownloadGoogleDriveFileFromURLToPath(patchPaths[zipfile], "temp\\", zipfile));
                     }
                 }
 
@@ -259,16 +264,17 @@ namespace MapleOriginLauncher
                     {
                         string[] split = line.Split(',');
                         string filename = split[0];
+                        string filenameZip = filename.Split('.')[0] + ".zip";
                         string remoteChecksum = split[1];
-                        string fileLink = split[2];
+                        string fileLink = useCloudStorage ? split[2] : BASE_URL + "latest/" + filenameZip;
                         if (!filesInPatch.Contains(filename))
                         {
                             string localChecksum = calculateChecksum(filename);
                             if (!remoteChecksum.Equals(localChecksum))
                             {
                                 Console.WriteLine("Adding to queue: " + filename);
-                                filesToPatch.Add(filename.Split('.')[0] + ".zip", 0);
-                                patchPaths.Add(filename.Split('.')[0] + ".zip", fileLink);
+                                filesToPatch.Add(filenameZip, 0);
+                                patchPaths.Add(filenameZip, fileLink);
                             }
                         }
                         currentProgress += (100.0 / totalFiles);
