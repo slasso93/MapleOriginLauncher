@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "MapleOriginPackagerCrossPlatform": {
+      "commandName": "Project",
+      "commandLineArgs": "unzipped/ output/ true",
+      "workingDirectory": "C:\\Users\\Steve\\Desktop\\maple\\MapleOriginLauncher\\MapleOriginPackagerCrossPlatform\\bin\\Debug\\netcoreapp3.1"
+    }
+  }
+}

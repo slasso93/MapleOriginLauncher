@@ -22,7 +22,8 @@ namespace MapleOriginPackagerCrossPlatform
             DriveService.Scope.DriveAppdata,
             DriveService.Scope.DriveScripts
         };
-        static string BASE_URL = "http://34.192.141.86/downloads/";
+        static string HOST = "34.192.141.86";
+        static string BASE_URL = "http://" + HOST + "/downloads/";
         static string ApplicationName = "MapleOriginPackager";
         static string patchDriveFolder = "1Jc3y4a3iD9b3BAldgIwue5_Rc1NsyrcH"; // patch folder containing latest folder and all patch.zip files
         static string latestDriveFolder = "1bG3B7Y-H37km1phbyfOmH0rnoSijeWK4"; // folder for all latest separately zipped files
@@ -33,7 +34,7 @@ namespace MapleOriginPackagerCrossPlatform
             if (args.Length != 3)
             {
                 Console.WriteLine("Command format:");
-                Console.WriteLine("'MapleOriginPacker.exe <path_to_patchfolder> <path_to_downloads> <true|false>' (flag is whether or not to zip and upload to google drive)");
+                Console.WriteLine("'MapleOriginPacker.exe <path_to_patchfolder> <path_to_downloads> <true|false>' (flag is whether or not to zip and upload as patch, individual diffs still upload)");
             }
             else
             {
@@ -336,6 +337,7 @@ namespace MapleOriginPackagerCrossPlatform
                     {
                         checksumMap.Add(nameInFile, sourceChecksum + (url != null ? "," + url : ""));
                         updatedFiles.Add(file);
+                        break;
                     }
                     else // we got a checksum match so we will just keep the row
                     {

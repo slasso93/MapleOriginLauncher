@@ -30,6 +30,7 @@ namespace MapleOriginLauncher
         private bool launcherNeedsUpdate;
         private bool success;
         private double currentProgress;
+        private List<string> filesInPatch = new List<string>(); // all files including ones inside the patch zip
         private Dictionary<string, int> filesToPatch; // filename, percentage downloaded
         private Dictionary<string, string> patchPaths; // filename, google drive link
 
@@ -130,19 +131,21 @@ namespace MapleOriginLauncher
                 }
 
                 await Task.WhenAll(downloads);
-                int i = 1;
+                int i = 0;
                 currentProgress = 0;
                 foreach (string zipfile in filesToPatch.Keys)
                 {
                     if (success)
                     {
-                        await Task.Run(() => processZip("temp\\", zipfile, i));
-                        updateProgress(progressBar, currentProgress + 100 * ((double)(i++)) / filesToPatch.Count);
+                        int processed = await Task.Run(() => processZip("temp\\", zipfile, i));
+                        i += processed;
                     }
                 }
 
                 if (success)
                 {
+                    File.Copy("temp\\version.txt", "version.txt", true);
+                    File.Delete("temp\\version.txt");
                     updateButton(button, "Play Game", true);
                 }
                 else
@@ -165,6 +168,8 @@ namespace MapleOriginLauncher
                     if (File.Exists("temp\\" + zipfile))
                         File.Delete("temp\\" + zipfile);
                 }
+                if (File.Exists("temp\\version.txt"))
+                    File.Delete("temp\\version.txt");
             }
         }
 
@@ -210,7 +215,6 @@ namespace MapleOriginLauncher
                 string remoteLauncherChecksum = firstLine[1];
                 string localLauncherChecksum = calculateChecksum(launcherName);
 
-                List<string> filesInPatch = new List<string>();
                 if (!remoteLauncherChecksum.Equals(localLauncherChecksum))
                 {
                     Console.WriteLine("Launcher is outdated!");
@@ -258,7 +262,6 @@ namespace MapleOriginLauncher
                             }
                         }
                     }
-                    File.Delete("temp\\version.txt");
 
                     while ((line = file.ReadLine()) != null)
                     {
@@ -273,6 +276,7 @@ namespace MapleOriginLauncher
                             if (!remoteChecksum.Equals(localChecksum))
                             {
                                 Console.WriteLine("Adding to queue: " + filename);
+                                filesInPatch.Add(filename);
                                 filesToPatch.Add(filenameZip, 0);
                                 patchPaths.Add(filenameZip, fileLink);
                             }
@@ -314,20 +318,24 @@ namespace MapleOriginLauncher
 
         }
 
-        private void processZip(string zipPath, string filename, int count)
+        private int processZip(string zipPath, string filename, int count)
         {
             var tcs = new TaskCompletionSource<int>();
+            int filesProcessed = -1;
             if (success) // only keep extract zips if all of previous worked
             {
                 try
                 {
                     using (ZipArchive archive = ZipFile.OpenRead(zipPath + filename))
                     {
+                        int patchCount = 1;
+                        filesProcessed = archive.Entries.Count;
                         foreach (ZipArchiveEntry entry in archive.Entries) // only 1 file in the zip though
                         {
-                            updateLabel(label, "Extracting: " + entry.FullName + " (" + count + "/" + filesToPatch.Count + ")");
+                            updateLabel(label, "Extracting: " + entry.FullName + " (" + (count + patchCount) + "/" + filesInPatch.Count + ")");
                             Console.WriteLine("Extracting " + entry.FullName + " from " + zipPath + filename);
                             entry.ExtractToFile(entry.FullName, true);
+                            updateProgress(progressBar, currentProgress + 100 * ((double)(count + patchCount++)) / filesInPatch.Count);
                         }
                     }
                     File.Delete(zipPath + filename);
@@ -340,6 +348,7 @@ namespace MapleOriginLauncher
                     success = false;
                 }
             }
+            return filesProcessed;
         }
 
         private void webClient_DownloadFileCompleted(object sender, AsyncCompletedEventArgs e)
