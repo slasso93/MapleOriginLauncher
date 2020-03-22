@@ -290,6 +290,15 @@ namespace MapleOriginLauncher
                     updateButton(button, "Play Game", true);
                     filesToPatch = null;
                 }
+                else if (filesToPatch.Count == 18) // not up to date
+                {
+                    show("Please make sure you place this launcher inside your MapleOrigin directory! Launcher will now shutdown");
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        Application.Current.Shutdown();
+                    });
+
+                }
                 else // not up to date
                 {
                     updateButton(button, "Update Game", true);
@@ -366,7 +375,7 @@ namespace MapleOriginLauncher
             else
             {
                 Console.WriteLine("error downloading: " + client.QueryString["url"]);
-                show(e.Error.Message);
+                show(e.Error.InnerException.Message);
                 File.Delete(client.QueryString["path"] + client.QueryString["filename"]);
                 success = false;
             }
