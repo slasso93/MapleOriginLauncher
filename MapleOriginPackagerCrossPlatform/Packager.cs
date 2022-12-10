@@ -9,6 +9,9 @@ using System.IO.Compression;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Threading;
+using MapleLib.WzLib;
+using MapleLib.WzLib.Serialization;
+
 
 namespace MapleOriginPackagerCrossPlatform
 {
